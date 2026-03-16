@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>簡單線上取號系統</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #f0f4f8;
+      margin: 0;
+      padding: 20px;
+      color: #333;
+    }
+    .container {
+      max-width: 500px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 16px;
+      padding: 32px 24px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+    }
+    h1 {
+      text-align: center;
+      color: #1a73e8;
+      margin-bottom: 8px;
+    }
+    .subtitle {
+      text-align: center;
+      color: #666;
+      margin-bottom: 32px;
+    }
+    .number {
+      font-size: 4.8rem;
+      font-weight: bold;
+      text-align: center;
+      margin: 20px 0;
+      color: #1a73e8;
+      letter-spacing: 8px;
+    }
+    .info {
+      font-size: 1.3rem;
+      text-align: center;
+      margin: 16px 0;
+      line-height: 1.5;
+    }
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 16px;
+      font-size: 1.3rem;
+      margin: 12px 0;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-get {
+      background: #1a73e8;
+      color: white;
+    }
+    .btn-get:hover { background: #0d65d6; }
+    .btn-reset { 
+      background: #e63946;
+      color: white;
+    }
+    .btn-reset:hover { background: #c62839; }
+    .btn-staff {
+      background: #fbbc05;
+      color: #333;
+      font-weight: bold;
+    }
+    .btn-staff:hover { background: #f4b400; }
+    .mode-switch {
+      text-align: center;
+      margin: 24px 0;
+      color: #555;
+    }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+
+  <h1>線上取號</h1>
+  <div class="subtitle">櫃檯 A</div>
+
+  <!-- 顧客模式 -->
+  <div id="customerMode">
+    <div id="beforeTake" class="text-center">
+      <p class="info">還沒取號唷～</p>
+      <button class="btn btn-get" onclick="takeNumber()">取號</button>
+    </div>
+
+    <div id="afterTake" class="hidden">
+      <div class="number" id="myNumber">A000</div>
+      <p class="info">
+        目前叫號：<strong id="current">A000</strong><br>
+        前面還有 <strong id="waitCount">0</strong> 組
+      </p>
+      <button class="btn btn-reset" onclick="resetMyNumber()">取消我的號碼</button>
+    </div>
+  </div>
+
+  <!-- 店員模式 -->
+  <div id="staffMode" class="hidden">
+    <p class="info">目前叫號： <span id="staffCurrent" style="font-size:2rem; font-weight:bold;">A000</span></p>
+    <p class="info">已取總數： <span id="totalTaken">0</span></p>
+    
+    <button class="btn btn-staff" onclick="callNext()">叫下一個</button>
+    <button class="btn btn-reset" onclick="resetAll()">重設全部（小心！）</button>
+  </div>
+
+  <div class="mode-switch">
+    <label><input type="checkbox" id="staffCheck" onchange="toggleMode()"> 我是店員</label>
+  </div>
+
+</div>
+
+<script>
+  const PREFIX = "A";           // 可改成 B、C、櫃檯1 等
+  const STORAGE_KEY = "queue2026";
+
+  let queue = loadQueue();
+
+  function loadQueue() {
+    const data = localStorage.getItem(STORAGE_KEY);
+    return data ? JSON.parse(data) : {
+      lastNumber: 0,
+      current: 0,
+      taken: []   // 存放已取號的序號 [1,3,5...]
+    };
+  }
+
+  function saveQueue() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(queue));
+  }
+
+  function formatNumber(n) {
+    return PREFIX + String(n).padStart(3, "0");
+  }
+
+  function updateDisplay() {
+    const myNum = localStorage.getItem("myQueueNumber");
+    
+    if (myNum) {
+      document.getElementById("beforeTake").classList.add("hidden");
+      document.getElementById("afterTake").classList.remove("hidden");
+      
+      document.getElementById("myNumber").textContent = myNum;
+      
+      const myIndex = queue.taken.indexOf(parseInt(myNum.slice(1)));
+      const currentIndex = queue.current > 0 ? queue.taken.indexOf(queue.current) : -1;
+      
+      let wait = 0;
+      if (myIndex > currentIndex && currentIndex >= 0) {
+        wait = myIndex - currentIndex - 1;
+      } else if (currentIndex < 0 && myIndex >= 0) {
+        wait = queue.taken.length;
+      }
+      
+      document.getElementById("current").textContent = queue.current ? formatNumber(queue.current) : "尚未開始";
+      document.getElementById("waitCount").textContent = wait;
+    } else {
+      document.getElementById("beforeTake").classList.remove("hidden");
+      document.getElementById("afterTake").classList.add("hidden");
+    }
+
+    // 店員畫面更新
+    document.getElementById("staffCurrent").textContent = queue.current ? formatNumber(queue.current) : "尚未開始";
+    document.getElementById("totalTaken").textContent = queue.taken.length;
+  }
+
+  function takeNumber() {
+    if (localStorage.getItem("myQueueNumber")) {
+      alert("你已經取過號了！");
+      return;
+    }
+
+    queue.lastNumber++;
+    const num = queue.lastNumber;
+    queue.taken.push(num);
+    const ticket = formatNumber(num);
+    
+    localStorage.setItem("myQueueNumber", ticket);
+    saveQueue();
+    updateDisplay();
+  }
+
+  function callNext() {
+    if (queue.taken.length === 0) {
+      alert("目前沒有人取號");
+      return;
+    }
+    
+    if (queue.current === 0) {
+      queue.current = queue.taken[0];
+    } else {
+      const idx = queue.taken.indexOf(queue.current);
+      if (idx < queue.taken.length - 1) {
+        queue.current = queue.taken[idx + 1];
+      } else {
+        alert("已經叫到最後一號了！");
+        return;
+      }
+    }
+    
+    saveQueue();
+    updateDisplay();
+  }
+
+  function resetMyNumber() {
+    if (confirm("確定要取消你的號碼？")) {
+      localStorage.removeItem("myQueueNumber");
+      updateDisplay();
+    }
+  }
+
+  function resetAll() {
+    if (confirm("確定要重設全部號碼？這會清除所有資料！")) {
+      localStorage.clear();
+      queue = { lastNumber: 0, current: 0, taken: [] };
+      saveQueue();
+      updateDisplay();
+    }
+  }
+
+  function toggleMode() {
+    const isStaff = document.getElementById("staffCheck").checked;
+    document.getElementById("customerMode").classList.toggle("hidden", isStaff);
+    document.getElementById("staffMode").classList.toggle("hidden", !isStaff);
+  }
+
+  // 頁面載入時更新顯示
+  updateDisplay();
+
+  // 每 3 秒自動同步（模擬多人同時看）
+  setInterval(updateDisplay, 3000);
+</script>
+
+</body>
+</html>
