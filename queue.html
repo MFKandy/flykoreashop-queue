@@ -1,243 +1,213 @@
-<!DOCTYPE html>
-<html lang="zh-Hant">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>FLYKOREA.SHOP 線上取籌系統</title>
-  <style>
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background: #f0f4f8;
-      margin: 0;
-      padding: 20px;
-      color: #333;
-    }
-    .container {
-      max-width: 500px;
-      margin: 0 auto;
-      background: white;
-      border-radius: 16px;
-      padding: 32px 24px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.08);
-    }
-    h1 {
-      text-align: center;
-      color: #1a73e8;
-      margin-bottom: 8px;
-    }
-    .subtitle {
-      text-align: center;
-      color: #666;
-      margin-bottom: 32px;
-    }
-    .number {
-      font-size: 4.8rem;
-      font-weight: bold;
-      text-align: center;
-      margin: 20px 0;
-      color: #1a73e8;
-      letter-spacing: 8px;
-    }
-    .info {
-      font-size: 1.3rem;
-      text-align: center;
-      margin: 16px 0;
-      line-height: 1.5;
-    }
-    .btn {
-      display: block;
-      width: 100%;
-      padding: 16px;
-      font-size: 1.3rem;
-      margin: 12px 0;
-      border: none;
-      border-radius: 12px;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .btn-get {
-      background: #1a73e8;
-      color: white;
-    }
-    .btn-get:hover { background: #0d65d6; }
-    .btn-reset { 
-      background: #e63946;
-      color: white;
-    }
-    .btn-reset:hover { background: #c62839; }
-    .btn-staff {
-      background: #fbbc05;
-      color: #333;
-      font-weight: bold;
-    }
-    .btn-staff:hover { background: #f4b400; }
-    .mode-switch {
-      text-align: center;
-      margin: 24px 0;
-      color: #555;
-    }
-    .hidden { display: none; }
-  </style>
-</head>
-<body>
-
-<div class="container">
-
-  <h1>線上取號</h1>
-  <div class="subtitle">FLYKOREA.SHOP</div>
-
-  <!-- 顧客模式 -->
-  <div id="customerMode">
-    <div id="beforeTake" class="text-center">
-      <p class="info">尚未有客人取籌唷～</p>
-      <button class="btn btn-get" onclick="takeNumber()">取號</button>
-    </div>
-
-    <div id="afterTake" class="hidden">
-      <div class="number" id="myNumber">A000</div>
-      <p class="info">
-        目前叫號：<strong id="current">A000</strong><br>
-        前面還有 <strong id="waitCount">0</strong> 組
-      </p>
-      <button class="btn btn-reset" onclick="resetMyNumber()">取消我的號碼</button>
-    </div>
-  </div>
-
-  <!-- 店員模式 -->
-  <div id="staffMode" class="hidden">
-    <p class="info">目前叫號： <span id="staffCurrent" style="font-size:2rem; font-weight:bold;">A000</span></p>
-    <p class="info">已取總數： <span id="totalTaken">0</span></p>
-    
-    <button class="btn btn-staff" onclick="callNext()">叫下一個</button>
-    <button class="btn btn-reset" onclick="resetAll()">重設全部（小心！）</button>
-  </div>
-
-  <div class="mode-switch">
-    <label><input type="checkbox" id="staffCheck" onchange="toggleMode()"> 我是店員</label>
-  </div>
-
-</div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
 <script>
-  const PREFIX = "A";           // 可改成 B、C、櫃檯1 等
-  const STORAGE_KEY = "queue2026";
+  // === 你的 Supabase 設定（一定要改成你自己的！） ===
+  const supabaseUrl    = 'https://queue_flykr.supabase.co';          // 例如 https://abcde123.supabase.co
+  const supabaseKey    = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'; // anon public key（從 API 頁面複製）
+  const supabase       = Supabase.createClient(supabaseUrl, supabaseKey);
 
-  let queue = loadQueue();
+  const PREFIX         = 'A';
+  const STORAGE_KEY    = 'myQueueNumber';   // 你的號碼存在 localStorage
 
-  function loadQueue() {
-    const data = localStorage.getItem(STORAGE_KEY);
-    return data ? JSON.parse(data) : {
-      lastNumber: 0,
-      current: 0,
-      taken: []   // 存放已取號的序號 [1,3,5...]
-    };
-  }
+  let queueData = {
+    lastNumber: 0,
+    current: 0,
+    taken: []          // 目前 waiting 的號碼陣列（排序過）
+  };
 
-  function saveQueue() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(queue));
-  }
-
+  // 格式化號碼 A001、A042 等
   function formatNumber(n) {
-    return PREFIX + String(n).padStart(3, "0");
+    return PREFIX + String(n).padStart(3, '0');
   }
 
-  function updateDisplay() {
-    const myNum = localStorage.getItem("myQueueNumber");
-    
-    if (myNum) {
-      document.getElementById("beforeTake").classList.add("hidden");
-      document.getElementById("afterTake").classList.remove("hidden");
-      
-      document.getElementById("myNumber").textContent = myNum;
-      
-      const myIndex = queue.taken.indexOf(parseInt(myNum.slice(1)));
-      const currentIndex = queue.current > 0 ? queue.taken.indexOf(queue.current) : -1;
-      
-      let wait = 0;
-      if (myIndex > currentIndex && currentIndex >= 0) {
-        wait = myIndex - currentIndex - 1;
-      } else if (currentIndex < 0 && myIndex >= 0) {
-        wait = queue.taken.length;
+  // 從 Supabase 載入最新 waiting 資料 + 目前叫號
+  async function loadQueue() {
+    try {
+      // 取所有 waiting，按建立時間排序
+      const { data: waitingRows, error: waitErr } = await supabase
+        .from('queue')
+        .select('number')
+        .eq('status', 'waiting')
+        .order('created_at', { ascending: true });
+
+      if (waitErr) throw waitErr;
+
+      queueData.taken = waitingRows.map(row => row.number);
+      queueData.lastNumber = queueData.taken.length > 0 ? Math.max(...queueData.taken) : 0;
+
+      // 找目前叫號（最新一筆 calling）
+      const { data: callingRow, error: callErr } = await supabase
+        .from('queue')
+        .select('number')
+        .eq('status', 'calling')
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (callErr) throw callErr;
+
+      queueData.current = callingRow?.[0]?.number || 0;
+
+      updateDisplay();
+    } catch (err) {
+      console.error('載入隊伍失敗:', err);
+    }
+  }
+
+  // 監聽 Supabase 變化（任何人取號/叫號都會觸發）
+  supabase
+    .channel('public:queue')
+    .on('postgres_changes', 
+      { event: '*', schema: 'public', table: 'queue' },
+      (payload) => {
+        console.log('隊伍有變化:', payload);
+        loadQueue();  // 簡單處理：有變就重新載入（小店夠用）
       }
-      
-      document.getElementById("current").textContent = queue.current ? formatNumber(queue.current) : "尚未開始";
-      document.getElementById("waitCount").textContent = wait;
+    )
+    .subscribe((status) => {
+      console.log('Realtime 訂閱狀態:', status);
+    });
+
+  // 更新畫面顯示（顧客 & 店員共用邏輯）
+  function updateDisplay() {
+    const myTicket = localStorage.getItem(STORAGE_KEY);
+
+    // 顧客視角
+    if (myTicket) {
+      document.getElementById('beforeTake').classList.add('hidden');
+      document.getElementById('afterTake').classList.remove('hidden');
+
+      document.getElementById('myNumber').textContent = myTicket;
+
+      const myNum = parseInt(myTicket.slice(1));
+      const currentNum = queueData.current;
+
+      let waitCount = 0;
+      if (queueData.taken.includes(myNum)) {
+        const myIndex = queueData.taken.indexOf(myNum);
+        const currentIndex = currentNum ? queueData.taken.indexOf(currentNum) : -1;
+
+        if (currentIndex >= 0) {
+          waitCount = myIndex - currentIndex - 1;
+        } else {
+          waitCount = queueData.taken.length; // 還沒開始叫
+        }
+      }
+
+      document.getElementById('current').textContent = currentNum ? formatNumber(currentNum) : '尚未開始';
+      document.getElementById('waitCount').textContent = waitCount;
     } else {
-      document.getElementById("beforeTake").classList.remove("hidden");
-      document.getElementById("afterTake").classList.add("hidden");
+      document.getElementById('beforeTake').classList.remove('hidden');
+      document.getElementById('afterTake').classList.add('hidden');
     }
 
-    // 店員畫面更新
-    document.getElementById("staffCurrent").textContent = queue.current ? formatNumber(queue.current) : "尚未開始";
-    document.getElementById("totalTaken").textContent = queue.taken.length;
+    // 店員視角
+    document.getElementById('staffCurrent').textContent = queueData.current ? formatNumber(queueData.current) : '尚未開始';
+    document.getElementById('totalTaken').textContent = queueData.taken.length + (queueData.current ? 1 : 0); // 粗估
   }
 
-  function takeNumber() {
-    if (localStorage.getItem("myQueueNumber")) {
-      alert("你已經取過號了！");
+  // 取號
+  async function takeNumber() {
+    if (localStorage.getItem(STORAGE_KEY)) {
+      alert('你已經取過號了！');
       return;
     }
 
-    queue.lastNumber++;
-    const num = queue.lastNumber;
-    queue.taken.push(num);
-    const ticket = formatNumber(num);
-    
-    localStorage.setItem("myQueueNumber", ticket);
-    saveQueue();
-    updateDisplay();
+    try {
+      // 先取目前最大號 +1
+      await loadQueue(); // 確保最新
+      const newNumber = queueData.lastNumber + 1;
+
+      const { error } = await supabase
+        .from('queue')
+        .insert({
+          number: newNumber,
+          prefix: PREFIX,
+          status: 'waiting'
+        });
+
+      if (error) throw error;
+
+      const ticket = formatNumber(newNumber);
+      localStorage.setItem(STORAGE_KEY, ticket);
+      // loadQueue() 會被 realtime 自動觸發
+    } catch (err) {
+      alert('取號失敗：' + err.message);
+    }
   }
 
-  function callNext() {
-    if (queue.taken.length === 0) {
-      alert("目前沒有人取號");
-      return;
-    }
-    
-    if (queue.current === 0) {
-      queue.current = queue.taken[0];
-    } else {
-      const idx = queue.taken.indexOf(queue.current);
-      if (idx < queue.taken.length - 1) {
-        queue.current = queue.taken[idx + 1];
-      } else {
-        alert("已經叫到最後一號了！");
+  // 叫下一個
+  async function callNext() {
+    try {
+      // 找最早的 waiting
+      const { data, error } = await supabase
+        .from('queue')
+        .select('id, number')
+        .eq('status', 'waiting')
+        .order('created_at', { ascending: true })
+        .limit(1);
+
+      if (error) throw error;
+      if (!data?.length) {
+        alert('目前沒有等待中的號碼');
         return;
       }
+
+      const next = data[0];
+
+      // 更新成 calling
+      await supabase
+        .from('queue')
+        .update({ status: 'calling' })
+        .eq('id', next.id);
+
+      // 舊 calling 可改 done（可選）
+      if (queueData.current) {
+        await supabase
+          .from('queue')
+          .update({ status: 'done' })
+          .eq('number', queueData.current)
+          .eq('status', 'calling');
+      }
+
+      // realtime 會自動更新所有人
+    } catch (err) {
+      alert('叫號失敗：' + err.message);
     }
-    
-    saveQueue();
-    updateDisplay();
   }
 
+  // 取消我的號碼（只移除本地，不刪資料庫）
   function resetMyNumber() {
-    if (confirm("確定要取消你的號碼？")) {
-      localStorage.removeItem("myQueueNumber");
+    if (confirm('確定取消你的號碼？')) {
+      localStorage.removeItem(STORAGE_KEY);
       updateDisplay();
     }
   }
 
-  function resetAll() {
-    if (confirm("確定要重設全部號碼？這會清除所有資料！")) {
+  // 重設全部（店員用，小心！）
+  async function resetAll() {
+    if (!confirm('確定重設全部號碼？會清除資料庫所有記錄！')) return;
+
+    try {
+      await supabase.from('queue').delete().neq('id', '00000000-0000-0000-0000-000000000000'); // 清空
       localStorage.clear();
-      queue = { lastNumber: 0, current: 0, taken: [] };
-      saveQueue();
+      queueData = { lastNumber: 0, current: 0, taken: [] };
       updateDisplay();
+    } catch (err) {
+      alert('重設失敗：' + err.message);
     }
   }
 
+  // 切換顧客/店員模式
   function toggleMode() {
-    const isStaff = document.getElementById("staffCheck").checked;
-    document.getElementById("customerMode").classList.toggle("hidden", isStaff);
-    document.getElementById("staffMode").classList.toggle("hidden", !isStaff);
+    const isStaff = document.getElementById('staffCheck').checked;
+    document.getElementById('customerMode').classList.toggle('hidden', isStaff);
+    document.getElementById('staffMode').classList.toggle('hidden', !isStaff);
   }
 
-  // 頁面載入時更新顯示
-  updateDisplay();
-
-  // 每 3 秒自動同步（模擬多人同時看）
-  setInterval(updateDisplay, 3000);
+  // 頁面載入時初始化
+  window.addEventListener('load', () => {
+    loadQueue();
+    // 每 10 秒強制同步一次（防萬一 realtime 斷線）
+    setInterval(loadQueue, 10000);
+  });
 </script>
-
-</body>
-</html>
